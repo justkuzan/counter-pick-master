@@ -8,9 +8,9 @@ Counter Pick Master is a lightweight WinForms app for finding League of Legends 
 2. Open `CounterPickMaster.exe` on Windows x64.
 3. Run `Create-Desktop-Shortcut.cmd` to create a desktop shortcut with the app's OP.GG icon.
 
-At startup, the app checks the current OP.GG patch. It downloads fresh matchup tables when the patch changes or the last download is at least 24 hours old. If the network is unavailable, you can retry or open the saved Gold snapshot. The local cache is stored at `%LOCALAPPDATA%\CounterPickMaster\matchups.json`.
+At startup, the app opens its saved Gold snapshot and checks the current OP.GG patch in the background. It downloads fresh matchup tables when the patch changes or the last download is at least 24 hours old. If the update fails, the saved tables stay available and you can retry. The local cache is stored at `%LOCALAPPDATA%\CounterPickMaster\matchups.json`.
 
-Choose a role and start typing a champion's English or Russian name. Click a suggestion or select it and press Enter. The selected champion stays active when you switch roles.
+Start typing a champion's English or Russian name. Click a suggestion or select it and press Enter. Only roles with matchup data for that champion are enabled. If the current role has no data, the app selects the first available role.
 
 The app shows every available matchup in which the selected champion's win rate is below 50%. It sorts by win rate from lowest to highest, with more games first when rates are tied. Red text marks matchups with fewer than 100 games.
 
@@ -21,7 +21,7 @@ The app shows every available matchup in which the selected champion's win rate 
 - [Riot Data Dragon](https://developer.riotgames.com/docs/lol#data-dragon) provides English and Russian champion names linked by champion ID.
 - [Riot patch notes](https://www.leagueoflegends.com/en-us/news/tags/patch-notes/) provide the patch release date when available.
 
-The executable includes a patch 16.23 snapshot that can be opened on the first launch without a network connection. When the app refreshes the snapshot, it downloads matchup tables for all five roles before enabling search.
+The executable includes a patch 16.23 snapshot so search works even on the first launch without a network connection.
 
 ## Build
 

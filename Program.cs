@@ -21,6 +21,7 @@ internal sealed class CounterWindow : Form
     private const int PortraitSize = 50;
     private const int PortraitPadding = 2;
     private const int CornerRadius = 8;
+    private static readonly Color StatusBlue = Color.FromArgb(56, 101, 237);
 
     private readonly DataService data = new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -36,16 +37,21 @@ internal sealed class CounterWindow : Form
         ImageSize = new Size(PortraitSize, PortraitSize + 2 * PortraitPadding)
     };
     private readonly Label status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+    private readonly Panel statusIcon = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
+    private readonly System.Windows.Forms.Timer statusAnimation = new() { Interval = 50 };
+    private readonly Font readyFont;
     private readonly Label patch = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true };
     private readonly Button retry = new() { Text = "Повторить", AutoSize = true, Visible = false };
-    private readonly Button offline = new() { Text = "Открыть сохранённые", AutoSize = true, Visible = false };
     private readonly FlowLayoutPanel roleButtons = new() { Dock = DockStyle.Fill, WrapContents = false };
+    private readonly Dictionary<string, RadioButton> buttonsByRole = [];
     private readonly ToolTip hint = new();
     private Snapshot? snapshot;
     private Champion? selected;
     private string role = "top";
     private bool updatingSuggestions;
     private bool synchronizing;
+    private bool statusReady;
+    private int spinnerAngle;
     private Dictionary<int, Champion> catalog = [];
 
     public CounterWindow()
@@ -54,6 +60,7 @@ internal sealed class CounterWindow : Form
         using var executableIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         if (executableIcon is not null) Icon = (Icon)executableIcon.Clone();
         Font = new Font("Segoe UI", 10);
+        readyFont = new Font(Font, FontStyle.Bold);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(730, 620);
@@ -94,13 +101,14 @@ internal sealed class CounterWindow : Form
             };
             button.CheckedChanged += (_, _) =>
             {
-                if (button.Checked)
+                if (button.Checked && role != code)
                 {
                     role = code;
                     ShowResults();
                 }
             };
             roleButtons.Controls.Add(button);
+            buttonsByRole.Add(code, button);
         }
 
         suggestions.Format += (_, args) =>
@@ -120,13 +128,19 @@ internal sealed class CounterWindow : Form
         {
             Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true, Margin = Padding.Empty
         };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         status.MinimumSize = new Size(0, 30);
-        footer.Controls.Add(status, 0, 0);
-        footer.Controls.Add(offline, 1, 0);
+        footer.Controls.Add(statusIcon, 0, 0);
+        footer.Controls.Add(status, 1, 0);
         footer.Controls.Add(retry, 2, 0);
+        statusIcon.Paint += DrawStatusIcon;
+        statusAnimation.Tick += (_, _) =>
+        {
+            spinnerAngle = (spinnerAngle + 24) % 360;
+            statusIcon.Invalidate();
+        };
 
         layout.Controls.Add(roleButtons, 0, 1);
         layout.Controls.Add(search, 0, 2);
@@ -139,13 +153,18 @@ internal sealed class CounterWindow : Form
 
         Shown += async (_, _) => await SynchronizeAsync();
         retry.Click += async (_, _) => await SynchronizeAsync();
-        offline.Click += (_, _) => EnableSnapshot(saved: true);
         FormClosed += (_, _) => lifetime.Cancel();
-        Disposed += (_, _) => portraits.Dispose();
+        Disposed += (_, _) =>
+        {
+            statusAnimation.Dispose();
+            readyFont.Dispose();
+            portraits.Dispose();
+        };
         search.TextChanged += (_, _) =>
         {
             selected = null;
             PopulateSuggestions();
+            UpdateRoleAvailability();
             ShowResults();
         };
         search.KeyDown += (_, args) =>
@@ -180,13 +199,55 @@ internal sealed class CounterWindow : Form
         search.Enabled = suggestions.Enabled = roleButtons.Enabled = enabled;
     }
 
+    private void UpdateRoleAvailability()
+    {
+        string? firstAvailable = null;
+        foreach (var (code, button) in buttonsByRole)
+        {
+            bool available = selected is null || snapshot?.Find(code, selected.Id).Length > 0;
+            button.Enabled = available;
+            if (available) firstAvailable ??= code;
+        }
+
+        if (firstAvailable is null)
+        {
+            buttonsByRole[role].Checked = false;
+            return;
+        }
+        if (!buttonsByRole[role].Enabled) role = firstAvailable;
+        buttonsByRole[role].Checked = true;
+    }
+
+    private void SetStatus(string text, bool busy = false, bool ready = false)
+    {
+        status.Text = text;
+        statusReady = ready;
+        status.Font = ready ? readyFont : Font;
+        status.ForeColor = ready ? StatusBlue : SystemColors.ControlText;
+        statusAnimation.Enabled = busy;
+        statusIcon.Invalidate();
+    }
+
+    private void DrawStatusIcon(object? sender, PaintEventArgs e)
+    {
+        if (!statusReady && !statusAnimation.Enabled) return;
+
+        float size = 16f * statusIcon.DeviceDpi / 96f;
+        e.Graphics.TranslateTransform((statusIcon.Width - size) / 2, (statusIcon.Height - size) / 2);
+        e.Graphics.ScaleTransform(size / 16, size / 16);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var pen = new Pen(StatusBlue, 2) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        if (statusReady) e.Graphics.DrawLines(pen, [new Point(2, 8), new Point(6, 12), new Point(14, 4)]);
+        else e.Graphics.DrawArc(pen, 2, 2, 12, 12, spinnerAngle, 260);
+    }
+
     private async Task SynchronizeAsync()
     {
         if (synchronizing) return;
         synchronizing = true;
-        retry.Visible = offline.Visible = false;
-        SetSearchEnabled(false);
-        status.Text = "Обновляем данные OP.GG…";
+        retry.Visible = false;
+        hint.SetToolTip(status, null);
+        SetStatus("Обновляем данные OP.GG…", busy: true);
         int shownCount = 0;
         var progress = new Progress<string>(message =>
         {
@@ -202,17 +263,30 @@ internal sealed class CounterWindow : Form
         });
         try
         {
-            snapshot ??= await data.LoadCacheAsync(lifetime.Token);
-            snapshot = await data.RefreshAsync(snapshot, progress, lifetime.Token);
-            if (!IsDisposed) EnableSnapshot(saved: false);
+            if (snapshot is null)
+            {
+                var cached = await data.LoadCacheAsync(lifetime.Token);
+                if (IsDisposed || lifetime.IsCancellationRequested) return;
+                if (cached is not null)
+                {
+                    ApplySnapshot(cached);
+                    search.Focus();
+                }
+            }
+
+            var previous = snapshot;
+            var refreshed = await Task.Run(() => data.RefreshAsync(previous, progress, lifetime.Token), lifetime.Token);
+            if (IsDisposed || lifetime.IsCancellationRequested) return;
+            ApplySnapshot(refreshed);
+            SetStatus("Данные готовы", ready: true);
+            hint.SetToolTip(status, $"Последняя проверка: {refreshed.CheckedAt.ToLocalTime():dd.MM.yyyy HH:mm}");
         }
         catch (Exception error) when (!lifetime.IsCancellationRequested)
         {
             if (IsDisposed) return;
-            status.Text = "Не удалось обновить данные";
+            SetStatus(snapshot is null ? "Не удалось обновить данные" : "Не удалось обновить · показаны сохранённые данные");
             hint.SetToolTip(status, error.Message);
             retry.Visible = true;
-            offline.Visible = snapshot is not null;
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         finally
@@ -221,22 +295,23 @@ internal sealed class CounterWindow : Form
         }
     }
 
-    private void EnableSnapshot(bool saved)
+    private void ApplySnapshot(Snapshot current)
     {
-        if (snapshot is null) return;
-        catalog = snapshot.Champions.ToDictionary(champion => champion.Id);
-        string sourceTime = snapshot.SourceTime.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
-        patch.Text = snapshot.PatchNotesDate is { } date
-            ? $"Патч OP.GG {snapshot.Patch} от {date:dd.MM.yyyy}"
-            : $"Патч OP.GG {snapshot.Patch}";
+        bool sameTables = ReferenceEquals(snapshot?.Matchups, current.Matchups);
+        snapshot = current;
+        string sourceTime = current.SourceTime.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
+        patch.Text = current.PatchNotesDate is { } date
+            ? $"Патч OP.GG {current.Patch} от {date:dd.MM.yyyy}"
+            : $"Патч OP.GG {current.Patch}";
         hint.SetToolTip(patch, $"Все серверы, Solo/Duo. Таблицы OP.GG загружены {sourceTime}.");
-        status.Text = saved ? "Открыта сохранённая статистика" : "Данные готовы";
-        hint.SetToolTip(status, $"Последняя проверка: {snapshot.CheckedAt.ToLocalTime():dd.MM.yyyy HH:mm}");
-        offline.Visible = false;
+        if (sameTables) return;
+
+        catalog = current.Champions.ToDictionary(champion => champion.Id);
+        if (selected is not null) selected = catalog.GetValueOrDefault(selected.Id);
         SetSearchEnabled(true);
         PopulateSuggestions();
+        UpdateRoleAvailability();
         ShowResults();
-        search.Focus();
     }
 
     private void PopulateSuggestions()
@@ -246,6 +321,7 @@ internal sealed class CounterWindow : Form
         suggestions.BeginUpdate();
         suggestions.Items.Clear();
         suggestions.Items.AddRange(DataService.Search(snapshot.Champions, search.Text).Cast<object>().ToArray());
+        if (selected is not null) suggestions.SelectedItem = selected;
         suggestions.EndUpdate();
         updatingSuggestions = false;
     }
@@ -254,6 +330,7 @@ internal sealed class CounterWindow : Form
     {
         if (updatingSuggestions || suggestions.SelectedItem is not Champion champion) return;
         selected = champion;
+        UpdateRoleAvailability();
         ShowResults();
     }
 

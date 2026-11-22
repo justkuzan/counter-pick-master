@@ -97,10 +97,11 @@ internal sealed class CounterWindow : Form
             if (args.ListItem is Champion champion) args.Value = $"{champion.Russian} ({champion.English})";
         };
         results.Columns.Add("Контрпик", 297);
-        results.Columns.Add("Винрейт против цели", 167, HorizontalAlignment.Right);
+        results.Columns.Add("Винрейт чемпиона", 167, HorizontalAlignment.Right);
         results.Columns.Add("Игры", 86, HorizontalAlignment.Right);
         results.HeaderStyle = ColumnHeaderStyle.Nonclickable;
         results.MultiSelect = false;
+        results.ShowItemToolTips = true;
 
         var footer = new TableLayoutPanel
         {
@@ -212,11 +213,9 @@ internal sealed class CounterWindow : Form
         catalog = snapshot.Champions.ToDictionary(champion => champion.Id);
         string sourceTime = snapshot.SourceTime.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
         patch.Text = snapshot.PatchNotesDate is { } date
-            ? $"Патч OP.GG {snapshot.Patch} · от {date:dd.MM.yyyy}"
-            : $"Патч OP.GG {snapshot.Patch} · данные от {sourceTime}";
-        hint.SetToolTip(patch, snapshot.PatchNotesDate is not null
-            ? $"Дата публикации заметок Riot. Запись тренда OP.GG: {sourceTime}"
-            : "Дата записи тренда OP.GG по местному времени");
+            ? $"Золото · патч {snapshot.Patch} от {date:dd.MM.yyyy}"
+            : $"Золото · патч {snapshot.Patch}";
+        hint.SetToolTip(patch, $"Все серверы, Solo/Duo. Таблицы OP.GG загружены {sourceTime}.");
         status.Text = saved ? "Открыта сохранённая статистика" : "Данные готовы";
         hint.SetToolTip(status, $"Последняя проверка: {snapshot.CheckedAt.ToLocalTime():dd.MM.yyyy HH:mm}");
         offline.Visible = false;
@@ -251,21 +250,26 @@ internal sealed class CounterWindow : Form
         if (snapshot is not null && selected is not null)
         {
             var rows = snapshot.Ranked(role, selected.Id);
-            results.Columns[1].Text = $"Винрейт против {selected.Russian}";
+            results.Columns[1].Text = $"Винрейт: {selected.Russian}";
             foreach (var counter in rows)
             {
                 if (!catalog.TryGetValue(counter.Id, out var champion)) continue;
-                results.Items.Add(new ListViewItem([
+                var item = new ListViewItem([
                     $"{champion.Russian} ({champion.English})",
-                    counter.Rate.ToString("P1", CultureInfo.CurrentCulture),
-                    counter.Games.ToString("N0", CultureInfo.CurrentCulture)
-                ]));
+                    counter.Rate.ToString("P2", CultureInfo.CurrentCulture),
+                    counter.Games.ToString("N0", CultureInfo.CurrentCulture) + (counter.Games < 100 ? " *" : "")
+                ]);
+                if (counter.Games < 100) item.ToolTipText = "Малая выборка: меньше 100 игр.";
+                results.Items.Add(item);
             }
-            if (rows.Length == 0) results.Items.Add("Данных по этой роли пока мало");
+            if (rows.Length == 0)
+                results.Items.Add(snapshot.Find(role, selected.Id).Length == 0
+                    ? "Нет данных по этой роли"
+                    : "Нет матчапов с винрейтом ниже 50%");
         }
         else
         {
-            results.Columns[1].Text = "Винрейт против цели";
+            results.Columns[1].Text = "Винрейт чемпиона";
         }
         results.EndUpdate();
     }

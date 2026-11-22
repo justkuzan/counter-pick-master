@@ -30,6 +30,7 @@ internal sealed class CounterWindow : Form
     private static readonly Color Muted = Color.FromArgb(0xB7, 0xB7, 0xC9);
     private static readonly Color DisabledText = Color.FromArgb(0x7B, 0x7A, 0x8E);
     private static readonly Color StatusBlue = Color.FromArgb(0x81, 0xAC, 0xFF);
+    private static readonly Color ActiveRoleBlue = Color.FromArgb(0x38, 0x65, 0xED);
     private static readonly Color Selected = Color.FromArgb(0x28, 0x34, 0x4E);
     private static readonly Color LowSample = Color.FromArgb(0xFF, 0x6C, 0x81);
 
@@ -44,7 +45,7 @@ internal sealed class CounterWindow : Form
         PlaceholderText = "Имя чемпиона на русском или английском"
     };
     private readonly ListBox suggestions = new() { Dock = DockStyle.Fill, IntegralHeight = false, FormattingEnabled = true };
-    private readonly ListView results = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
+    private readonly BufferedResults results = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
     private readonly Panel resultsHeader = new() { Dock = DockStyle.Top, Height = 25, BackColor = Recessed };
     private readonly ImageList portraits = new()
     {
@@ -88,7 +89,7 @@ internal sealed class CounterWindow : Form
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 1, RowCount = 6 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 49));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 101));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -179,8 +180,7 @@ internal sealed class CounterWindow : Form
         results.ForeColor = TextColor;
         results.BorderStyle = BorderStyle.None;
         results.OwnerDraw = true;
-        results.DrawItem += (_, args) => args.DrawDefault = false;
-        results.DrawSubItem += DrawResultCell;
+        results.DrawItem += DrawResultRow;
         results.HandleCreated += (_, _) => SetWindowTheme(results.Handle, "DarkMode_Explorer", null);
         results.Columns.Add("", 62);
         results.Columns.Add("Контрпик", 270);
@@ -331,15 +331,15 @@ internal sealed class CounterWindow : Form
         {
             bool active = button is RadioButton { Checked: true };
             bool hovered = button.Enabled && button.ClientRectangle.Contains(button.PointToClient(Cursor.Position));
-            Color fill = !button.Enabled ? Recessed : active ? Selected : hovered ? Border : Surface;
-            Color foreground = !button.Enabled ? DisabledText : active ? StatusBlue : TextColor;
+            Color fill = !button.Enabled ? Recessed : active ? ActiveRoleBlue : hovered ? Border : Surface;
+            Color foreground = !button.Enabled ? DisabledText : TextColor;
             args.Graphics.Clear(Background);
             args.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using var shape = RoundedPanel.OutlinePath(button.ClientRectangle, ScalePixels(9));
             using var brush = new SolidBrush(fill);
             using var pen = new Pen(button.Focused ? StatusBlue : Border);
             args.Graphics.FillPath(brush, shape);
-            if (button.Enabled) args.Graphics.DrawPath(pen, shape);
+            if (button.Enabled && (!active || button.Focused)) args.Graphics.DrawPath(pen, shape);
             TextRenderer.DrawText(args.Graphics, button.Text, button.Font, button.ClientRectangle, foreground,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
         };
@@ -381,25 +381,26 @@ internal sealed class CounterWindow : Form
         resultsHeader.Invalidate();
     }
 
-    private void DrawResultCell(object? sender, DrawListViewSubItemEventArgs e)
+    private void DrawResultRow(object? sender, DrawListViewItemEventArgs e)
     {
         var bounds = e.Bounds;
-        bool selectedRow = e.Item?.Selected == true;
-        Color rowColor = selectedRow ? Selected : e.ItemIndex % 2 == 0 ? Surface : Recessed;
+        Color rowColor = e.Item.Selected ? Selected : e.ItemIndex % 2 == 0 ? Surface : Recessed;
         using var brush = new SolidBrush(rowColor);
         using var divider = new Pen(Border);
-        int rowEdge = e.ColumnIndex == results.Columns.Count - 1 ? results.ClientSize.Width : bounds.Right;
-        e.Graphics.FillRectangle(brush, Rectangle.FromLTRB(bounds.Left, bounds.Top, rowEdge, bounds.Bottom));
-        e.Graphics.DrawLine(divider, bounds.Left, bounds.Bottom - 1, rowEdge, bounds.Bottom - 1);
-        if (e.ColumnIndex == 0 && e.Item is { } row)
+        e.Graphics.FillRectangle(brush, bounds.Left, bounds.Top, results.ClientSize.Width, bounds.Height);
+        e.Graphics.DrawLine(divider, bounds.Left, bounds.Bottom - 1, results.ClientSize.Width, bounds.Bottom - 1);
+
+        int index = portraits.Images.IndexOfKey(e.Item.ImageKey);
+        if (index >= 0) portraits.Draw(e.Graphics, bounds.Left + ScalePixels(8),
+            bounds.Top + (bounds.Height - portraits.ImageSize.Height) / 2, index);
+
+        int left = bounds.Left + results.Columns[0].Width;
+        for (int column = 1; column < e.Item.SubItems.Count; column++)
         {
-            int index = portraits.Images.IndexOfKey(row.ImageKey);
-            if (index >= 0) portraits.Draw(e.Graphics, bounds.Left + ScalePixels(8),
-                bounds.Top + (bounds.Height - portraits.ImageSize.Height) / 2, index);
-        }
-        else
-        {
-            DrawCellText(e.Graphics, e.SubItem?.Text ?? "", bounds, e.Item?.ForeColor ?? TextColor, e.ColumnIndex);
+            int width = results.Columns[column].Width;
+            DrawCellText(e.Graphics, e.Item.SubItems[column].Text,
+                new Rectangle(left, bounds.Top, width, bounds.Height), e.Item.ForeColor, column);
+            left += width;
         }
     }
 
@@ -587,6 +588,11 @@ internal sealed class CounterWindow : Form
         portraits.Images.Add(key, masked);
         return key;
     }
+}
+
+internal sealed class BufferedResults : ListView
+{
+    public BufferedResults() => DoubleBuffered = true;
 }
 
 internal sealed class RoundedPanel(Color fill, Color outline, int radius) : Panel

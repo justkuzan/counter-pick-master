@@ -1,27 +1,29 @@
 # Counter Pick Master
 
-Лёгкое приложение WinForms для поиска контрпиков League of Legends по данным OP.GG. В статистику входят матчи Solo/Duo в Золоте по всем серверам на текущем патче.
+Counter Pick Master is a lightweight WinForms app for finding League of Legends counterpicks using OP.GG data. It uses Gold Solo/Duo matches across all servers on the current patch.
 
-## Запуск
+## Getting started
 
-1. При необходимости установите [Microsoft .NET Desktop Runtime 10 x64](https://dotnet.microsoft.com/download/dotnet/10.0) для Windows.
-2. Откройте `CounterPickMaster.exe` в Windows x64.
-3. Для ярлыка на рабочем столе запустите `Create-Desktop-Shortcut.cmd`. Он создаст ярлык на EXE с иконкой OP.GG, встроенной в приложение.
+1. Install the [Microsoft .NET Desktop Runtime 10 x64](https://dotnet.microsoft.com/download/dotnet/10.0) for Windows if needed.
+2. Open `CounterPickMaster.exe` on Windows x64.
+3. Run `Create-Desktop-Shortcut.cmd` to create a desktop shortcut with the app's OP.GG icon.
 
-При запуске приложение проверяет патч OP.GG. Оно заново загружает таблицы при смене патча или через 24 часа после предыдущей загрузки. При сетевой ошибке можно повторить проверку или открыть сохранённый снимок Золота. Локальный кэш хранится в `%LOCALAPPDATA%\CounterPickMaster\matchups.json`.
+At startup, the app checks the current OP.GG patch. It downloads fresh matchup tables when the patch changes or the last download is at least 24 hours old. If the network is unavailable, you can retry or open the saved Gold snapshot. The local cache is stored at `%LOCALAPPDATA%\CounterPickMaster\matchups.json`.
 
-Выберите роль и начните вводить имя чемпиона на русском или английском. Щёлкните по подсказке или выделите её и нажмите Enter. При смене роли выбранный чемпион сохраняется. Приложение показывает все строки таблицы матчапов, где винрейт выбранного чемпиона ниже 50%. Список отсортирован от меньшего винрейта к большему. При одинаковом проценте выше матчап с большим числом игр. Красный текст отмечает выборку меньше 100 игр.
+Choose a role and start typing a champion's English or Russian name. Click a suggestion or select it and press Enter. The selected champion stays active when you switch roles.
 
-## Источники
+The app shows every available matchup in which the selected champion's win rate is below 50%. It sorts by win rate from lowest to highest, with more games first when rates are tied. Red text marks matchups with fewer than 100 games.
 
-- [OP.GG](https://op.gg/ru/lol/champions/illaoi/counters/top?tier=gold&region=global) — таблицы матчапов и список чемпионов по ролям. Приложение использует фильтры `tier=gold`, `region=global` и `type=ranked`.
-- Портреты OP.GG размером 160 × 160 хранятся в папке `Portraits` и встраиваются в EXE. Для их отображения сеть не нужна.
-- [Riot Data Dragon](https://developer.riotgames.com/docs/lol#data-dragon) — русские и английские имена по общему ID.
-- [Заметки Riot](https://www.leagueoflegends.com/en-us/news/tags/patch-notes/) — дата публикации патча, если соответствующая статья доступна.
+## Data sources
 
-В EXE встроен снимок патча 16.23, чтобы сохранённые данные можно было открыть даже при первом запуске без сети. При доступной сети приложение проверяет свежесть снимка при каждом запуске. На новом снимке OP.GG оно скачивает данные по пяти ролям до разблокировки поиска.
+- [OP.GG](https://op.gg/lol/champions/illaoi/counters/top?tier=gold&region=global) provides the matchup tables and champion lists by role. The app uses `tier=gold`, `region=global`, and `type=ranked`.
+- OP.GG's 160 × 160 champion portraits are stored in `Portraits` and embedded in the executable for offline display.
+- [Riot Data Dragon](https://developer.riotgames.com/docs/lol#data-dragon) provides English and Russian champion names linked by champion ID.
+- [Riot patch notes](https://www.leagueoflegends.com/en-us/news/tags/patch-notes/) provide the patch release date when available.
 
-## Сборка
+The executable includes a patch 16.23 snapshot that can be opened on the first launch without a network connection. When the app refreshes the snapshot, it downloads matchup tables for all five roles before enabling search.
+
+## Build
 
 ```powershell
 dotnet publish CounterPickMaster.csproj -c Release -r win-x64 -p:SelfContained=false -p:PublishSingleFile=true -p:DebugType=none

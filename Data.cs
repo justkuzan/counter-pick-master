@@ -17,10 +17,11 @@ internal sealed record Snapshot(string Patch, DateTimeOffset SourceTime, DateTim
     public static string Key(string role, int champion) => $"{role}/{champion}";
 
     public Counter[] Ranked(string role, int champion) => Find(role, champion)
+        .Where(counter => counter.Rate > 0.5)
         .OrderByDescending(counter => counter.Rate)
         .ThenByDescending(counter => counter.Games)
         .ThenBy(counter => counter.Id)
-        .Take(8).ToArray();
+        .ToArray();
 }
 
 internal sealed class DataService(string cachePath)

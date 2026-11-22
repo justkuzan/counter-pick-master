@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CounterPickMaster</AssemblyName>
-    <ApplicationIcon>opgg.ico</ApplicationIcon>
+    <ApplicationIcon>CounterPickMaster.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="initial-snapshot.json" Condition="Exists('initial-snapshot.json')" />

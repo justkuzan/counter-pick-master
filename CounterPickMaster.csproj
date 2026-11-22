@@ -11,5 +11,6 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="initial-snapshot.json" Condition="Exists('initial-snapshot.json')" />
+    <EmbeddedResource Include="Portraits/*.png" LogicalName="Portraits.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

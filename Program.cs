@@ -1,4 +1,6 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Globalization;
 using System.Windows.Forms;
 
@@ -16,6 +18,10 @@ internal static class Program
 
 internal sealed class CounterWindow : Form
 {
+    private const int PortraitSize = 50;
+    private const int PortraitPadding = 2;
+    private const int CornerRadius = 8;
+
     private readonly DataService data = new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CounterPickMaster", "matchups.json"));
@@ -24,6 +30,11 @@ internal sealed class CounterWindow : Form
     private readonly TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "Имя чемпиона на русском или английском" };
     private readonly ListBox suggestions = new() { Dock = DockStyle.Fill, IntegralHeight = false, FormattingEnabled = true };
     private readonly ListView results = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
+    private readonly ImageList portraits = new()
+    {
+        ColorDepth = ColorDepth.Depth32Bit,
+        ImageSize = new Size(PortraitSize, PortraitSize + 2 * PortraitPadding)
+    };
     private readonly Label status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Label patch = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true };
     private readonly Button retry = new() { Text = "Повторить", AutoSize = true, Visible = false };
@@ -45,8 +56,8 @@ internal sealed class CounterWindow : Form
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(670, 530);
-        MinimumSize = new Size(600, 485);
+        ClientSize = new Size(730, 620);
+        MinimumSize = new Size(670, 485);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 1, RowCount = 6 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -62,7 +73,7 @@ internal sealed class CounterWindow : Form
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
         header.Controls.Add(new Label
         {
-            Text = "Железо–Золото · Solo/Duo",
+            Text = "Золото · Solo/Duo · все серверы",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft
         }, 0, 0);
@@ -96,7 +107,9 @@ internal sealed class CounterWindow : Form
         {
             if (args.ListItem is Champion champion) args.Value = $"{champion.Russian} ({champion.English})";
         };
-        results.Columns.Add("Контрпик", 297);
+        results.SmallImageList = portraits;
+        results.Columns.Add("", 62);
+        results.Columns.Add("Контрпик", 270);
         results.Columns.Add("Винрейт чемпиона", 167, HorizontalAlignment.Right);
         results.Columns.Add("Игры", 86, HorizontalAlignment.Right);
         results.HeaderStyle = ColumnHeaderStyle.Nonclickable;
@@ -128,6 +141,7 @@ internal sealed class CounterWindow : Form
         retry.Click += async (_, _) => await SynchronizeAsync();
         offline.Click += (_, _) => EnableSnapshot(saved: true);
         FormClosed += (_, _) => lifetime.Cancel();
+        Disposed += (_, _) => portraits.Dispose();
         search.TextChanged += (_, _) =>
         {
             selected = null;
@@ -213,8 +227,8 @@ internal sealed class CounterWindow : Form
         catalog = snapshot.Champions.ToDictionary(champion => champion.Id);
         string sourceTime = snapshot.SourceTime.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
         patch.Text = snapshot.PatchNotesDate is { } date
-            ? $"Золото · патч {snapshot.Patch} от {date:dd.MM.yyyy}"
-            : $"Золото · патч {snapshot.Patch}";
+            ? $"Патч OP.GG {snapshot.Patch} от {date:dd.MM.yyyy}"
+            : $"Патч OP.GG {snapshot.Patch}";
         hint.SetToolTip(patch, $"Все серверы, Solo/Duo. Таблицы OP.GG загружены {sourceTime}.");
         status.Text = saved ? "Открыта сохранённая статистика" : "Данные готовы";
         hint.SetToolTip(status, $"Последняя проверка: {snapshot.CheckedAt.ToLocalTime():dd.MM.yyyy HH:mm}");
@@ -250,27 +264,64 @@ internal sealed class CounterWindow : Form
         if (snapshot is not null && selected is not null)
         {
             var rows = snapshot.Ranked(role, selected.Id);
-            results.Columns[1].Text = $"Винрейт: {selected.Russian}";
+            results.Columns[2].Text = $"Винрейт: {selected.Russian}";
             foreach (var counter in rows)
             {
                 if (!catalog.TryGetValue(counter.Id, out var champion)) continue;
                 var item = new ListViewItem([
+                    "",
                     $"{champion.Russian} ({champion.English})",
                     counter.Rate.ToString("P2", CultureInfo.CurrentCulture),
-                    counter.Games.ToString("N0", CultureInfo.CurrentCulture) + (counter.Games < 100 ? " *" : "")
+                    counter.Games.ToString("N0", CultureInfo.CurrentCulture)
                 ]);
-                if (counter.Games < 100) item.ToolTipText = "Малая выборка: меньше 100 игр.";
+                item.ImageKey = GetPortraitKey(champion.Id);
+                if (counter.Games < 100)
+                {
+                    item.ForeColor = Color.Firebrick;
+                    item.ToolTipText = "Малая выборка: меньше 100 игр.";
+                }
                 results.Items.Add(item);
             }
             if (rows.Length == 0)
-                results.Items.Add(snapshot.Find(role, selected.Id).Length == 0
+                results.Items.Add(new ListViewItem(["", snapshot.Find(role, selected.Id).Length == 0
                     ? "Нет данных по этой роли"
-                    : "Нет матчапов с винрейтом ниже 50%");
+                    : "Нет матчапов с винрейтом ниже 50%"]));
         }
         else
         {
-            results.Columns[1].Text = "Винрейт чемпиона";
+            results.Columns[2].Text = "Винрейт чемпиона";
         }
         results.EndUpdate();
+    }
+
+    private string GetPortraitKey(int championId)
+    {
+        string key = championId.ToString(CultureInfo.InvariantCulture);
+        if (portraits.Images.ContainsKey(key)) return key;
+
+        using var stream = typeof(CounterWindow).Assembly.GetManifestResourceStream($"Portraits.{key}.png");
+        if (stream is null) return "";
+
+        using var source = Image.FromStream(stream);
+        using var resized = new Bitmap(source, new Size(PortraitSize, PortraitSize));
+        using var masked = new Bitmap(portraits.ImageSize.Width, portraits.ImageSize.Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(masked);
+        using var brush = new TextureBrush(resized);
+        using var outline = new GraphicsPath();
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.PixelOffsetMode = PixelOffsetMode.Half;
+        brush.TranslateTransform(0, PortraitPadding);
+        int diameter = 2 * CornerRadius;
+        int farEdge = PortraitSize - diameter;
+        outline.AddArc(0, PortraitPadding, diameter, diameter, 180, 90);
+        outline.AddArc(farEdge, PortraitPadding, diameter, diameter, 270, 90);
+        outline.AddArc(farEdge, farEdge + PortraitPadding, diameter, diameter, 0, 90);
+        outline.AddArc(0, farEdge + PortraitPadding, diameter, diameter, 90, 90);
+        outline.CloseFigure();
+        graphics.FillPath(brush, outline);
+
+        _ = portraits.Handle;
+        portraits.Images.Add(key, masked);
+        return key;
     }
 }
